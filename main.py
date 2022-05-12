@@ -138,6 +138,10 @@ def main_worker(gpu, ngpus_per_node, args):
         print("=> creating model '{}'".format(args.arch))
         model = models.__dict__[args.arch]()
 
+    # change output dimension
+    fc_features = model.fc.in_features 
+    model.fc = nn.Linear(fc_features, 200)
+
     if not torch.cuda.is_available():
         print('using CPU, this will be slow')
     elif args.distributed:
@@ -171,9 +175,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
 
 
-    # change output dimension
-    fc_features = model.fc.in_features 
-    model.fc = nn.Linear(fc_features, 200)
+
 
 
 

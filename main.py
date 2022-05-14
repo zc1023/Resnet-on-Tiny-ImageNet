@@ -1,7 +1,9 @@
 import argparse
+from operator import mod
 import os
 import random
 import shutil
+from statistics import mode
 import time
 import warnings
 from enum import Enum
@@ -19,6 +21,9 @@ import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
+
+from torch.utils.tensorboard import SummaryWriter
+
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
@@ -251,16 +256,17 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.evaluate:
         validate(val_loader, model, criterion, args)
         return
-
+    writer = SummaryWriter()
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
 
         # train for one epoch
-        train(train_loader, model, criterion, optimizer, epoch, args)
+        
+        train(train_loader, model, criterion, optimizer, epoch, args,writer)
 
         # evaluate on validation set
-        acc1 = validate(val_loader, model, criterion, args)
+        acc1 = validate_in_train(val_loader, model, criterion, args,epoch,writer)
         
         scheduler.step()
 
@@ -279,9 +285,9 @@ def main_worker(gpu, ngpus_per_node, args):
                 'optimizer' : optimizer.state_dict(),
                 'scheduler' : scheduler.state_dict()
             }, is_best)
+    writer.close()
 
-
-def train(train_loader, model, criterion, optimizer, epoch, args):
+def train(train_loader, model, criterion, optimizer, epoch, args,writer):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -294,10 +300,16 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
     # switch to train mode
     model.train()
-
+    images, labels = next(iter(train_loader))
+    
+    
+    writer.add_graph(model,images)
+    
+    
     end = time.time()
     for i, (images, target) in enumerate(train_loader):
         # measure data loading time
+        
         data_time.update(time.time() - end)
 
         if args.gpu is not None:
@@ -308,6 +320,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         # compute output
         output = model(images)
         loss = criterion(output, target)
+        
 
         # measure accuracy and record loss
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
@@ -319,6 +332,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        
+        writer.add_scalars("train",{"train_loss":loss,"train_acc1":acc1[0],'train_acc5':acc5[0]},epoch*len(train_loader)+i)
 
         # measure elapsed time
         batch_time.update(time.time() - end)
@@ -326,6 +341,52 @@ def train(train_loader, model, criterion, optimizer, epoch, args):
 
         if i % args.print_freq == 0:
             progress.display(i)
+    
+    
+
+def validate_in_train(val_loader, model, criterion, args,epoch,writer):
+    batch_time = AverageMeter('Time', ':6.3f', Summary.NONE)
+    losses = AverageMeter('Loss', ':.4e', Summary.NONE)
+    top1 = AverageMeter('Acc@1', ':6.2f', Summary.AVERAGE)
+    top5 = AverageMeter('Acc@5', ':6.2f', Summary.AVERAGE)
+    progress = ProgressMeter(
+        len(val_loader),
+        [batch_time, losses, top1, top5],
+        prefix='Test: ')
+
+    # switch to evaluate mode
+    model.eval()
+
+    with torch.no_grad():
+        end = time.time()
+        for i, (images, target) in enumerate(val_loader):
+            if args.gpu is not None:
+                images = images.cuda(args.gpu, non_blocking=True)
+            if torch.cuda.is_available():
+                target = target.cuda(args.gpu, non_blocking=True)
+
+            # compute output
+            output = model(images)
+            loss = criterion(output, target)
+
+            # measure accuracy and record loss
+            acc1, acc5 = accuracy(output, target, topk=(1, 5))
+            losses.update(loss.item(), images.size(0))
+            top1.update(acc1[0], images.size(0))
+            top5.update(acc5[0], images.size(0))
+
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+            
+            writer.add_scalars("validate",{"validate_loss":loss,"validate_acc1":acc1[0],'validate_acc5':acc5[0]},epoch*len(val_loader)+i)
+
+            if i % args.print_freq == 0:
+                progress.display(i)
+
+        progress.display_summary()
+
+    return top1.avg
 
 
 def validate(val_loader, model, criterion, args):
@@ -362,7 +423,8 @@ def validate(val_loader, model, criterion, args):
             # measure elapsed time
             batch_time.update(time.time() - end)
             end = time.time()
-
+            
+            
             if i % args.print_freq == 0:
                 progress.display(i)
 

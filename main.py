@@ -423,9 +423,22 @@ def validate(val_loader, model, criterion, args):
             output = model(images)
             loss = criterion(output, target)
 
+            # write the result of checkpoint
+            topk=(1,5 )
+            maxk = max(topk)
+            _, pred = output.topk(maxk, 1, True, True)
+            pred = pred.t()
+            correct = pred.eq(target.view(1, -1).expand_as(pred))
+            with open ('result2.txt','a')as f:
+                for j in (correct.tolist()[0]):
+                    if j :
+                        f.write('1')
+                    else:
+                        f.write('0')
+                
             # measure accuracy and record loss
             acc1, acc5 = accuracy(output, target, topk=(1, 5))
-            print(acc5[0])
+
             losses.update(loss.item(), images.size(0))
             top1.update(acc1[0], images.size(0))
             top5.update(acc5[0], images.size(0))

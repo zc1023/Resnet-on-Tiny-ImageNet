@@ -228,8 +228,10 @@ def main_worker(gpu, ngpus_per_node, args):
     train_dataset = datasets.ImageFolder(
         traindir,
         transforms.Compose([
-            transforms.RandomResizedCrop(224),
-            transforms.RandomHorizontalFlip(),
+            # transforms.RandomResizedCrop(224),
+            # transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(180),
+            
             transforms.ToTensor(),
             normalize,
         ]))
@@ -245,8 +247,8 @@ def main_worker(gpu, ngpus_per_node, args):
 
     val_loader = torch.utils.data.DataLoader(
         datasets.ImageFolder(valdir, transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
+            # transforms.Resize(256),
+            # transforms.CenterCrop(224),
             transforms.ToTensor(),
             normalize,
         ])),
@@ -332,9 +334,12 @@ def train(train_loader, model, criterion, optimizer, epoch, args,writer):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        
-        writer.add_scalars("train",{"train_loss":loss,"train_acc1":acc1[0],'train_acc5':acc5[0]},epoch*len(train_loader)+i)
-
+        steps = 10
+        if(i%steps==0):
+            # writer.add_scalars("train",{"train_loss":loss,"train_acc1":acc1[0],'train_acc5':acc5[0]},epoch*len(train_loader)+i)
+            writer.add_scalar("train_loss",loss,(epoch*len(train_loader)+i)/steps)
+            writer.add_scalar("train_acc1",acc1[0],(epoch*len(train_loader)+i)/steps)
+            writer.add_scalar("train_acc5",acc5[0],(epoch*len(train_loader)+i)/steps)
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
@@ -379,8 +384,12 @@ def validate_in_train(val_loader, model, criterion, args,epoch,writer):
             batch_time.update(time.time() - end)
             end = time.time()
             
-            writer.add_scalars("validate",{"validate_loss":loss,"validate_acc1":acc1[0],'validate_acc5':acc5[0]},epoch*len(val_loader)+i)
-
+            # writer.add_scalars("validate",{"validate_loss":loss,"validate_acc1":acc1[0],'validate_acc5':acc5[0]},epoch)
+            steps=10
+            if i % steps ==0:
+                writer.add_scalar("validat_loss",loss,(epoch*len(val_loader)+i)/steps)
+                writer.add_scalar("validate_acc1",acc1[0],(epoch*len(val_loader)+i)/steps)
+                writer.add_scalar("validate_acc5",acc5[0],(epoch*len(val_loader)+i)/steps)
             if i % args.print_freq == 0:
                 progress.display(i)
 
@@ -416,6 +425,7 @@ def validate(val_loader, model, criterion, args):
 
             # measure accuracy and record loss
             acc1, acc5 = accuracy(output, target, topk=(1, 5))
+            print(acc5[0])
             losses.update(loss.item(), images.size(0))
             top1.update(acc1[0], images.size(0))
             top5.update(acc5[0], images.size(0))
